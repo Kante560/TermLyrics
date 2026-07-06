@@ -1,4 +1,4 @@
-import type { LyricLine, LyricResult } from "@termlyrics/shared";
+import type { LyricLine, LyricResult } from "@/lib/types";
 
 const LRC_LINE_RE = /\[(\d+):(\d+)(?:\.(\d+))?\](.*)/;
 

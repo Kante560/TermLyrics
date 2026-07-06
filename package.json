@@ -7,8 +7,8 @@
     "build": "next build",
     "lint": "next lint"
   },
+  "packageManager": "pnpm@9.0.0",
   "dependencies": {
-    "@termlyrics/shared": "workspace:*",
     "jose": "^5.10.0",
     "next": "^14.2.35",
     "postgres": "^3.4.9",
