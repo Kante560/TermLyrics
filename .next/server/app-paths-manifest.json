@@ -3,8 +3,8 @@
   "/(dashboard)/page": "app/(dashboard)/page.js",
   "/login/page": "app/login/page.js",
   "/api/auth/login/route": "app/api/auth/login/route.js",
-  "/api/now-playing/route": "app/api/now-playing/route.js",
   "/api/lyrics/route": "app/api/lyrics/route.js",
   "/api/auth/callback/route": "app/api/auth/callback/route.js",
-  "/callback/route": "app/callback/route.js"
+  "/callback/route": "app/callback/route.js",
+  "/api/now-playing/route": "app/api/now-playing/route.js"
 }

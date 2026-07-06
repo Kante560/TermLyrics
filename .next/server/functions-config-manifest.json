@@ -1,1 +1,1 @@
-{"version":1,"functions":{"/api/auth/login":{},"/api/lyrics":{},"/api/auth/callback":{},"/callback":{},"/api/now-playing":{}}}
+{"version":1,"functions":{"/api/auth/login":{},"/api/now-playing":{},"/api/auth/callback":{},"/callback":{},"/api/lyrics":{}}}
