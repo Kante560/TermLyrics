@@ -1,0 +1,6 @@
+{
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm turbo run build --filter=web",
+  "rootDirectory": "apps/web",
+  "framework": "nextjs"
+}
