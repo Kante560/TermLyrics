@@ -1,0 +1,39 @@
+
+> @termlyrics/web@0.1.0 build C:\Projects\Py\termlyrics\apps\web
+> next build
+
+  ▲ Next.js 14.2.35
+  - Environments: .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/5) ...
+   Generating static pages (1/5) 
+   Generating static pages (2/5) 
+   Generating static pages (3/5) 
+ ✓ Generating static pages (5/5)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    1.91 kB        89.1 kB
+├ ○ /_not-found                          872 B          88.1 kB
+├ ƒ /api/auth/callback                   0 B                0 B
+├ ƒ /api/auth/login                      0 B                0 B
+├ ƒ /api/lyrics                          0 B                0 B
+├ ƒ /api/now-playing                     0 B                0 B
+├ ƒ /callback                            0 B                0 B
+└ ƒ /login                               138 B          87.4 kB
++ First Load JS shared by all            87.2 kB
+  ├ chunks/5b8f0dd8-e7ec6d33186a94db.js  53.6 kB
+  ├ chunks/749-7d79d30d36e06bd8.js       31.7 kB
+  └ other shared chunks (total)          1.86 kB
+
+
+ƒ Middleware                             35.2 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
