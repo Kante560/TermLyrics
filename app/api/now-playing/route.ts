@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getUser, updateTokens } from "@/lib/db";
 import { getCurrentPlayback, refreshAccessToken } from "@/lib/spotify";
-import type { TrackInfo } from "@termlyrics/shared";
+import type { TrackInfo } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
   const session = await getSession(request);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { TrackInfo, LyricLine, LyricResult } from "@termlyrics/shared";
+import type { TrackInfo, LyricLine, LyricResult } from "@/lib/types";
 import { findActiveLine, interpolateProgress } from "@/lib/lyrics-sync";
 
 const POLL_INTERVAL = 2000;
