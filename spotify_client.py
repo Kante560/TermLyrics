@@ -25,7 +25,7 @@ class SpotifyClient:
         client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
         redirect_uri = os.getenv(
             "SPOTIFY_REDIRECT_URI",
-            "http://localhost:8888/callback",
+            "http://127.0.0.1:8888/callback",
         )
 
         if not client_id or not client_secret:
