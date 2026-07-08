@@ -116,7 +116,7 @@ export async function getCurrentPlayback(accessToken: string): Promise<{
     }
   );
 
-  if (res.status === 204 || res.status === 200) {
+  if (res.status === 204) {
     return null;
   }
 
