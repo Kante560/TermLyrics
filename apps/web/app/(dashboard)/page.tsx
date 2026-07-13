@@ -2,18 +2,35 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { TrackInfo, LyricLine, LyricResult } from "@/lib/types";
-import { findActiveLine, interpolateProgress } from "@/lib/lyrics-sync";
+import { findActiveLine } from "@/lib/lyrics-sync";
 
 const POLL_INTERVAL = 2000;
 const RENDER_INTERVAL = 250;
+
+type PlayerAction =
+  | { action: "play" | "pause" | "next" | "previous" }
+  | { action: "seek"; positionMs: number }
+  | { action: "shuffle"; state: boolean }
+  | { action: "repeat"; state: "off" | "context" | "track" }
+  | { action: "volume"; percent: number };
 
 export default function DashboardPage() {
   const [track, setTrack] = useState<TrackInfo | null>(null);
   const [lyricResult, setLyricResult] = useState<LyricResult | null>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [estimatedProgress, setEstimatedProgress] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
   const lastPollRef = useRef(0);
   const trackIdRef = useRef<string | null>(null);
+  const lastLyricsTrackRef = useRef<string | null>(null);
+  const lyricsRetriesRef = useRef(0);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
+  }, []);
 
   const pollNowPlaying = useCallback(async () => {
     try {
@@ -38,27 +55,74 @@ export default function DashboardPage() {
       setEstimatedProgress(t.progressMs);
 
       if (t.trackId !== trackIdRef.current) {
+        if (t.trackId !== lastLyricsTrackRef.current) {
+          lastLyricsTrackRef.current = t.trackId;
+          lyricsRetriesRef.current = 0;
+        }
         trackIdRef.current = t.trackId;
-        fetchLyrics(t.trackName, t.artist);
+        fetchLyrics(t.trackName, t.artist, t.durationMs);
       }
     } catch {
       // ignore network errors
     }
   }, []);
 
-  const fetchLyrics = useCallback(async (trackName: string, artist: string) => {
+  const fetchLyrics = useCallback(async (trackName: string, artist: string, durationMs: number) => {
     try {
       const res = await fetch(
-        `/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artist)}`
+        `/api/lyrics?track=${encodeURIComponent(trackName)}&artist=${encodeURIComponent(artist)}&duration=${durationMs}`
       );
       if (!res.ok) return;
       const data: LyricResult = await res.json();
       setLyricResult(data);
       setActiveIndex(-1);
+
+      // A "not found" can be a transient network failure server-side;
+      // allow the next poll to refetch this track a couple of times.
+      const notFound =
+        data.type === "unsynced" && data.text.startsWith("Lyrics not found");
+      if (notFound && lyricsRetriesRef.current < 2) {
+        lyricsRetriesRef.current += 1;
+        trackIdRef.current = null;
+      }
     } catch {
       // ignore
     }
   }, []);
+
+  const sendPlayerAction = useCallback(
+    async (body: PlayerAction) => {
+      try {
+        const res = await fetch("/api/player", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.error === "insufficient_scope") {
+            // Session predates the playback scope; re-consent picks it up.
+            window.location.href = "/api/auth/login";
+          } else if (data?.error === "premium_required") {
+            showNotice("Playback controls require Spotify Premium.");
+          } else if (data?.error === "no_active_device") {
+            showNotice("No active Spotify device found. Start playback in Spotify first.");
+          } else if (res.status === 401) {
+            // Old session without the playback scope: re-login picks it up.
+            window.location.href = "/api/auth/login";
+          } else {
+            showNotice("Playback command failed.");
+          }
+          return;
+        }
+        // Refresh state shortly after a successful command.
+        setTimeout(pollNowPlaying, 300);
+      } catch {
+        showNotice("Network error sending playback command.");
+      }
+    },
+    [pollNowPlaying, showNotice]
+  );
 
   useEffect(() => {
     pollNowPlaying();
@@ -86,73 +150,216 @@ export default function DashboardPage() {
     }
   }, [estimatedProgress, lyricResult]);
 
-  if (!track) {
-    return (
-      <main style={containerStyle}>
-        <p style={{ color: "var(--muted)", fontSize: "1.125rem" }}>
-          No track playing. Open Spotify and play something.
-        </p>
-      </main>
-    );
-  }
+  const handleSeek = useCallback(
+    (fraction: number) => {
+      if (!track || track.durationMs <= 0) return;
+      const positionMs = Math.round(fraction * track.durationMs);
+      setEstimatedProgress(positionMs);
+      sendPlayerAction({ action: "seek", positionMs });
+    },
+    [track, sendPlayerAction]
+  );
 
-  
-
-  const lines = lyricResult?.type === "synced" ? lyricResult.lines : null;
-  const unsyncedText = lyricResult?.type === "unsynced" ? lyricResult.text : null;
+  const cycleRepeat = useCallback(() => {
+    const order: Array<"off" | "context" | "track"> = ["off", "context", "track"];
+    const current = track?.repeatState ?? "off";
+    const next = order[(order.indexOf(current) + 1) % order.length];
+    sendPlayerAction({ action: "repeat", state: next });
+  }, [track, sendPlayerAction]);
 
   return (
     <main style={containerStyle}>
-      <header style={headerStyle}>
-        <div>
-          <h2 style={trackNameStyle}>{track.trackName}</h2>
-          <p style={artistStyle}>{track.artist}</p>
+      <TopBar />
+
+      {notice && <div style={noticeStyle}>{notice}</div>}
+
+      {!track ? (
+        <div style={lyricsContainerStyle}>
+          <p style={{ color: "var(--muted)", fontSize: "1.125rem" }}>
+            No track playing. Open Spotify and play something.
+          </p>
         </div>
-        {track.albumArtUrl && (
-          <img
-            src={track.albumArtUrl}
-            alt="Album art"
-            style={{ width: 56, height: 56, borderRadius: 4, objectFit: "cover" }}
+      ) : (
+        <>
+          <header style={headerStyle}>
+            <div style={{ minWidth: 0 }}>
+              <h2 style={trackNameStyle}>{track.trackName}</h2>
+              <p style={artistStyle}>
+                {track.artist}
+                {track.deviceName ? ` · ${track.deviceName}` : ""}
+              </p>
+            </div>
+            {track.albumArtUrl && (
+              <img
+                src={track.albumArtUrl}
+                alt="Album art"
+                style={albumArtStyle}
+              />
+            )}
+          </header>
+
+          <SeekBar
+            progressMs={estimatedProgress}
+            durationMs={track.durationMs}
+            onSeek={handleSeek}
           />
-        )}
-      </header>
 
-      <ProgressBar
-        progressMs={estimatedProgress}
-        durationMs={track.durationMs}
-      />
+          <PlayerControls
+            isPlaying={track.isPlaying}
+            shuffle={track.shuffleState ?? false}
+            repeat={track.repeatState ?? "off"}
+            volume={track.volumePercent ?? null}
+            onPlayPause={() =>
+              sendPlayerAction({ action: track.isPlaying ? "pause" : "play" })
+            }
+            onNext={() => sendPlayerAction({ action: "next" })}
+            onPrevious={() => sendPlayerAction({ action: "previous" })}
+            onShuffle={() =>
+              sendPlayerAction({ action: "shuffle", state: !(track.shuffleState ?? false) })
+            }
+            onRepeat={cycleRepeat}
+            onVolume={(percent) => sendPlayerAction({ action: "volume", percent })}
+          />
 
-      <section style={lyricsContainerStyle}>
-        {lines ? (
-          <SyncedLyrics lines={lines} activeIndex={activeIndex} progressMs={estimatedProgress} />
-        ) : unsyncedText ? (
-          <p style={{ color: "var(--muted)", whiteSpace: "pre-wrap" }}>{unsyncedText}</p>
-        ) : (
-          <p style={{ color: "var(--muted)" }}>Loading lyrics...</p>
-        )}
-      </section>
+          <section style={lyricsContainerStyle}>
+            {lyricResult?.type === "synced" ? (
+              <SyncedLyrics
+                lines={lyricResult.lines}
+                activeIndex={activeIndex}
+                progressMs={estimatedProgress}
+              />
+            ) : lyricResult?.type === "unsynced" ? (
+              <p style={{ color: "var(--muted)", whiteSpace: "pre-wrap", textAlign: "center" }}>
+                {lyricResult.text}
+              </p>
+            ) : (
+              <p style={{ color: "var(--muted)" }}>Loading lyrics...</p>
+            )}
+          </section>
+        </>
+      )}
     </main>
   );
 }
 
-function ProgressBar({
+function TopBar() {
+  return (
+    <div style={topBarStyle}>
+      <span style={logoStyle}>termlyrics</span>
+      <a href="/api/auth/logout" style={logoutStyle}>
+        Log out
+      </a>
+    </div>
+  );
+}
+
+function SeekBar({
   progressMs,
   durationMs,
+  onSeek,
 }: {
   progressMs: number;
   durationMs: number;
+  onSeek: (fraction: number) => void;
 }) {
+  const trackRef = useRef<HTMLDivElement>(null);
   const pct = durationMs > 0 ? Math.min((progressMs / durationMs) * 100, 100) : 0;
-  const current = formatTime(progressMs);
-  const total = formatTime(durationMs);
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const fraction = (e.clientX - rect.left) / rect.width;
+    onSeek(Math.min(Math.max(fraction, 0), 1));
+  };
 
   return (
     <div style={progressBarContainerStyle}>
-      <span style={timeStyle}>{current}</span>
-      <div style={progressTrackStyle}>
+      <span style={timeStyle}>{formatTime(progressMs)}</span>
+      <div
+        ref={trackRef}
+        onClick={handleClick}
+        style={{ ...progressTrackStyle, cursor: "pointer" }}
+        title="Seek"
+      >
         <div style={{ ...progressFillStyle, width: `${pct}%` }} />
       </div>
-      <span style={timeStyle}>{total}</span>
+      <span style={timeStyle}>{formatTime(durationMs)}</span>
+    </div>
+  );
+}
+
+function PlayerControls({
+  isPlaying,
+  shuffle,
+  repeat,
+  volume,
+  onPlayPause,
+  onNext,
+  onPrevious,
+  onShuffle,
+  onRepeat,
+  onVolume,
+}: {
+  isPlaying: boolean;
+  shuffle: boolean;
+  repeat: "off" | "context" | "track";
+  volume: number | null;
+  onPlayPause: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onShuffle: () => void;
+  onRepeat: () => void;
+  onVolume: (percent: number) => void;
+}) {
+  const repeatLabel = repeat === "track" ? "🔂" : "🔁";
+
+  return (
+    <div style={controlsRowStyle}>
+      <button
+        onClick={onShuffle}
+        style={{ ...smallButtonStyle, color: shuffle ? "var(--accent)" : "var(--muted)" }}
+        title={`Shuffle: ${shuffle ? "on" : "off"}`}
+        aria-label="Toggle shuffle"
+      >
+        🔀
+      </button>
+
+      <button onClick={onPrevious} style={controlButtonStyle} title="Previous" aria-label="Previous track">
+        ⏮
+      </button>
+      <button onClick={onPlayPause} style={playButtonStyle} title={isPlaying ? "Pause" : "Play"} aria-label={isPlaying ? "Pause" : "Play"}>
+        {isPlaying ? "⏸" : "▶"}
+      </button>
+      <button onClick={onNext} style={controlButtonStyle} title="Next" aria-label="Next track">
+        ⏭
+      </button>
+
+      <button
+        onClick={onRepeat}
+        style={{
+          ...smallButtonStyle,
+          color: repeat !== "off" ? "var(--accent)" : "var(--muted)",
+        }}
+        title={`Repeat: ${repeat}`}
+        aria-label="Cycle repeat mode"
+      >
+        {repeatLabel}
+      </button>
+
+      {volume !== null && (
+        <input
+          type="range"
+          min={0}
+          max={100}
+          defaultValue={volume}
+          onMouseUp={(e) => onVolume(Number((e.target as HTMLInputElement).value))}
+          onTouchEnd={(e) => onVolume(Number((e.target as HTMLInputElement).value))}
+          style={volumeStyle}
+          title="Volume"
+          aria-label="Volume"
+        />
+      )}
     </div>
   );
 }
@@ -237,28 +444,75 @@ function formatTime(ms: number): string {
 const containerStyle: React.CSSProperties = {
   maxWidth: 640,
   margin: "0 auto",
-  padding: "2rem 1rem",
+  padding: "1rem 1rem 2rem",
   minHeight: "100vh",
   display: "flex",
   flexDirection: "column",
-  gap: "1.5rem",
+  gap: "1.25rem",
+};
+
+const topBarStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  paddingBottom: "0.5rem",
+  borderBottom: "1px solid var(--surface)",
+};
+
+const logoStyle: React.CSSProperties = {
+  fontWeight: 700,
+  letterSpacing: "0.05em",
+  color: "var(--accent)",
+};
+
+const logoutStyle: React.CSSProperties = {
+  color: "var(--muted)",
+  fontSize: "0.875rem",
+  textDecoration: "none",
+  padding: "0.375rem 0.75rem",
+  border: "1px solid var(--surface)",
+  borderRadius: 6,
+};
+
+const noticeStyle: React.CSSProperties = {
+  background: "var(--surface)",
+  color: "var(--fg)",
+  padding: "0.625rem 1rem",
+  borderRadius: 8,
+  fontSize: "0.875rem",
+  textAlign: "center",
 };
 
 const headerStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
+  gap: "1rem",
+};
+
+const albumArtStyle: React.CSSProperties = {
+  width: 64,
+  height: 64,
+  borderRadius: 6,
+  objectFit: "cover",
+  flexShrink: 0,
 };
 
 const trackNameStyle: React.CSSProperties = {
   fontSize: "1.25rem",
   fontWeight: 700,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const artistStyle: React.CSSProperties = {
   fontSize: "0.875rem",
   color: "var(--muted)",
   marginTop: "0.25rem",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const progressBarContainerStyle: React.CSSProperties = {
@@ -276,17 +530,63 @@ const timeStyle: React.CSSProperties = {
 
 const progressTrackStyle: React.CSSProperties = {
   flex: 1,
-  height: 4,
+  height: 6,
   background: "var(--surface)",
-  borderRadius: 2,
+  borderRadius: 3,
   overflow: "hidden",
 };
 
 const progressFillStyle: React.CSSProperties = {
   height: "100%",
   background: "var(--accent)",
-  borderRadius: 2,
+  borderRadius: 3,
   transition: "width 0.25s linear",
+};
+
+const controlsRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "1rem",
+};
+
+const controlButtonStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--fg)",
+  fontSize: "1.5rem",
+  cursor: "pointer",
+  padding: "0.25rem 0.5rem",
+  lineHeight: 1,
+};
+
+const playButtonStyle: React.CSSProperties = {
+  background: "var(--surface)",
+  border: "none",
+  color: "var(--fg)",
+  fontSize: "1.5rem",
+  cursor: "pointer",
+  width: 56,
+  height: 56,
+  borderRadius: "50%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  lineHeight: 1,
+};
+
+const smallButtonStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  fontSize: "1.125rem",
+  cursor: "pointer",
+  padding: "0.25rem 0.5rem",
+  lineHeight: 1,
+};
+
+const volumeStyle: React.CSSProperties = {
+  width: 90,
+  accentColor: "var(--accent)",
 };
 
 const lyricsContainerStyle: React.CSSProperties = {

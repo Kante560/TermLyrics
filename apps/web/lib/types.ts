@@ -6,6 +6,10 @@ export interface TrackInfo {
   albumArtUrl: string | null;
   isPlaying: boolean;
   progressMs: number;
+  shuffleState?: boolean;
+  repeatState?: "off" | "context" | "track";
+  volumePercent?: number | null;
+  deviceName?: string | null;
 }
 
 export interface LyricLine {

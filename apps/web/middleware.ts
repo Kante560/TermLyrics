@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSession } from "@/lib/session";
 
-const publicRoutes = ["/login", "/api/auth/login", "/api/auth/callback", "/callback"];
+const publicRoutes = ["/login", "/api/auth/login", "/callback"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
