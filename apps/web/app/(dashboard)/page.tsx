@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Shuffle, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1 } from "lucide-react";
 import type { TrackInfo, LyricLine, LyricResult } from "@/lib/types";
 import { findActiveLine } from "@/lib/lyrics-sync";
 
@@ -245,7 +246,7 @@ export default function DashboardPage() {
 function TopBar() {
   return (
     <div style={topBarStyle}>
-      <span style={logoStyle}>termlyrics</span>
+      <span style={logoStyle}>Kant_Sing</span>
       <a href="/api/auth/logout" style={logoutStyle}>
         Log out
       </a>
@@ -312,7 +313,12 @@ function PlayerControls({
   onRepeat: () => void;
   onVolume: (percent: number) => void;
 }) {
-  const repeatLabel = repeat === "track" ? "🔂" : "🔁";
+  const repeatTitle =
+    repeat === "off"
+      ? "Repeat: off (click for repeat all)"
+      : repeat === "context"
+        ? "Repeat: all (click for repeat one)"
+        : "Repeat: one (click to turn off)";
 
   return (
     <div style={controlsRowStyle}>
@@ -321,18 +327,19 @@ function PlayerControls({
         style={{ ...smallButtonStyle, color: shuffle ? "var(--accent)" : "var(--muted)" }}
         title={`Shuffle: ${shuffle ? "on" : "off"}`}
         aria-label="Toggle shuffle"
+        aria-pressed={shuffle}
       >
-        🔀
+        <Shuffle size={18} />
       </button>
 
       <button onClick={onPrevious} style={controlButtonStyle} title="Previous" aria-label="Previous track">
-        ⏮
+        <SkipBack size={24} fill="currentColor" />
       </button>
       <button onClick={onPlayPause} style={playButtonStyle} title={isPlaying ? "Pause" : "Play"} aria-label={isPlaying ? "Pause" : "Play"}>
-        {isPlaying ? "⏸" : "▶"}
+        {isPlaying ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" style={{ marginLeft: 2 }} />}
       </button>
       <button onClick={onNext} style={controlButtonStyle} title="Next" aria-label="Next track">
-        ⏭
+        <SkipForward size={24} fill="currentColor" />
       </button>
 
       <button
@@ -341,10 +348,10 @@ function PlayerControls({
           ...smallButtonStyle,
           color: repeat !== "off" ? "var(--accent)" : "var(--muted)",
         }}
-        title={`Repeat: ${repeat}`}
-        aria-label="Cycle repeat mode"
+        title={repeatTitle}
+        aria-label={repeatTitle}
       >
-        {repeatLabel}
+        {repeat === "track" ? <Repeat1 size={18} /> : <Repeat size={18} />}
       </button>
 
       {volume !== null && (
@@ -554,10 +561,11 @@ const controlButtonStyle: React.CSSProperties = {
   background: "none",
   border: "none",
   color: "var(--fg)",
-  fontSize: "1.5rem",
   cursor: "pointer",
-  padding: "0.25rem 0.5rem",
-  lineHeight: 1,
+  padding: "0.375rem",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const playButtonStyle: React.CSSProperties = {
@@ -578,10 +586,11 @@ const playButtonStyle: React.CSSProperties = {
 const smallButtonStyle: React.CSSProperties = {
   background: "none",
   border: "none",
-  fontSize: "1.125rem",
   cursor: "pointer",
-  padding: "0.25rem 0.5rem",
-  lineHeight: 1,
+  padding: "0.375rem",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const volumeStyle: React.CSSProperties = {
