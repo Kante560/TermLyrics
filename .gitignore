@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .spotipy_token_cache
+
+.vercel
+.env*
