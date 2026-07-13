@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Shuffle, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1 } from "lucide-react";
+import { Shuffle, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1, Crown, Star } from "lucide-react";
 import type { TrackInfo, LyricLine, LyricResult } from "@/lib/types";
 import { findActiveLine } from "@/lib/lyrics-sync";
 import SoundWaveCanvas from "@/components/SoundWaveCanvas";
@@ -251,15 +251,53 @@ export default function DashboardPage() {
 }
 
 function TopBar() {
+  const [product, setProduct] = useState<"premium" | "free" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.product === "premium" || data?.product === "free") {
+          setProduct(data.product);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div style={topBarStyle}>
-      <span style={logoStyle}>Kant_Sing</span>
+      <div style={brandStyle}>
+        <span style={logoStyle}>Kant_Sing</span>
+        {product && (
+          <span
+            style={product === "premium" ? premiumBadgeStyle : freeBadgeStyle}
+            title={
+              product === "premium"
+                ? "Spotify Premium account"
+                : "Spotify Free account"
+            }
+          >
+            {product === "premium" ? (
+              <Crown size={12} strokeWidth={2.5} />
+            ) : (
+              <Star size={12} strokeWidth={2.5} />
+            )}
+            {product === "premium" ? "Premium" : "Free"}
+          </span>
+        )}
+      </div>
       <a href="/api/auth/logout" style={logoutStyle}>
         Log out
       </a>
     </div>
   );
 }
+
 
 function SeekBar({
   progressMs,
@@ -491,6 +529,39 @@ const logoStyle: React.CSSProperties = {
   fontWeight: 700,
   letterSpacing: "0.05em",
   color: "var(--accent)",
+};
+
+const brandStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+};
+
+const tierBadgeBase: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.25rem",
+  padding: "0.125rem 0.5rem",
+  borderRadius: 999,
+  fontSize: "0.6875rem",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  lineHeight: 1.6,
+};
+
+const premiumBadgeStyle: React.CSSProperties = {
+  ...tierBadgeBase,
+  color: "#1a1200",
+  background: "linear-gradient(135deg, #f5d76e, #d4a017, #f5d76e)",
+  boxShadow: "0 0 8px rgba(212, 160, 23, 0.45)",
+};
+
+const freeBadgeStyle: React.CSSProperties = {
+  ...tierBadgeBase,
+  color: "var(--muted)",
+  background: "var(--surface)",
+  border: "1px solid var(--muted)",
 };
 
 const logoutStyle: React.CSSProperties = {
