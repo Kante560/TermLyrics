@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "termlyrics",
+  title: "Kant_Sing",
   description: "Live, time-synced karaoke-style lyrics",
 };
 

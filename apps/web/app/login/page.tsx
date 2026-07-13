@@ -59,7 +59,7 @@ export default function LoginPage({
       <style>{".login-btn:hover { opacity: 0.85 !important; }"}</style>
 
       <div style={{ textAlign: "center" }}>
-        <h1 style={styles.heading}>termlyrics</h1>
+        <h1 style={styles.heading}>Kant_Sing</h1>
         <p style={styles.subtitle}>Live, time-synced karaoke lyrics</p>
       </div>
 
