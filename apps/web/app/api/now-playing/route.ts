@@ -2,8 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getUser, updateTokens } from "@/lib/db";
-import { getCurrentPlayback, refreshAccessToken } from "@/lib/spotify";
+import { getValidAccessToken } from "@/lib/tokens";
+import { getCurrentPlayback } from "@/lib/spotify";
 import type { TrackInfo } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -12,30 +12,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const user = await getUser(session.spotifyId);
-  if (!user) {
-    return NextResponse.json({ error: "user_not_found" }, { status: 401 });
+  let accessToken: string;
+  try {
+    accessToken = await getValidAccessToken(session.spotifyId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "auth_failed";
+    return NextResponse.json({ error: reason }, { status: 401 });
   }
 
-  let accessToken = user.access_token;
-  let expiresAtMs = user.expires_at * 1000;
-
-  if (Date.now() >= expiresAtMs) {
-    try {
-      const refreshed = await refreshAccessToken(user.refresh_token);
-      accessToken = refreshed.accessToken;
-      expiresAtMs = Date.now() + refreshed.expiresIn * 1000;
-      await updateTokens(session.spotifyId, {
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken ?? undefined,
-        expiresAt: new Date(expiresAtMs),
-      });
-    } catch {
-      return NextResponse.json({ error: "token_refresh_failed" }, { status: 401 });
-    }
+  let playback;
+  try {
+    playback = await getCurrentPlayback(accessToken);
+  } catch {
+    return NextResponse.json({ error: "spotify_unavailable" }, { status: 502 });
   }
 
-  const playback = await getCurrentPlayback(accessToken);
   if (!playback) {
     return NextResponse.json({ playing: false });
   }
@@ -48,6 +39,10 @@ export async function GET(request: NextRequest) {
     albumArtUrl: playback.albumArtUrl,
     isPlaying: playback.isPlaying,
     progressMs: playback.progressMs,
+    shuffleState: playback.shuffleState,
+    repeatState: playback.repeatState,
+    volumePercent: playback.volumePercent,
+    deviceName: playback.deviceName,
   };
 
   return NextResponse.json(track);

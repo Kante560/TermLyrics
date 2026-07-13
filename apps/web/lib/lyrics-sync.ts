@@ -72,64 +72,100 @@ export function interpolateProgress(
   return estimated;
 }
 
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function extractLyrics(body: Record<string, unknown>, track: TrackInfo): string | null {
+  if (typeof body.syncedLyrics === "string" && body.syncedLyrics.length > 0) {
+    return body.syncedLyrics;
+  }
+  if (typeof body.plainLyrics === "string" && body.plainLyrics.length > 0) {
+    console.warn(
+      `No synced lyrics for "${track.trackName}" by ${track.artist}, falling back to plain lyrics`
+    );
+    return body.plainLyrics;
+  }
+  return null;
+}
+
 async function tryLrclib(track: TrackInfo): Promise<string | null> {
   const cacheKey = `${track.artist}-${track.trackName}`;
   const cached = lyricsCache.get(cacheKey);
   if (cached) return cached;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  const getParams = new URLSearchParams({
+    artist_name: track.artist,
+    track_name: track.trackName,
+  });
+  // lrclib rejects duration=0 with a 400; only send it when we know it
+  if (track.durationMs > 0) {
+    getParams.set("duration", String(Math.round(track.durationMs / 1000)));
+  }
+
+  // Two attempts against /api/get (network here can be slow/flaky), then /api/search.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetchWithTimeout(`https://lrclib.net/api/get?${getParams}`, 10000);
+      if (res.status === 404) break; // definitive miss; go to search
+      if (!res.ok) {
+        console.warn(`[lyrics] lrclib /get returned ${res.status} for "${track.trackName}"`);
+        continue;
+      }
+      const body = (await res.json()) as Record<string, unknown>;
+      const lyrics = extractLyrics(body, track);
+      if (lyrics) {
+        lyricsCache.set(cacheKey, lyrics);
+        return lyrics;
+      }
+      break;
+    } catch (err) {
+      console.warn(`[lyrics] lrclib /get attempt ${attempt} failed for "${track.trackName}":`, err);
+    }
+  }
 
   try {
-    const params = new URLSearchParams({
+    const searchParams = new URLSearchParams({
       artist_name: track.artist,
       track_name: track.trackName,
-      duration: String(Math.round(track.durationMs / 1000)),
     });
-
-    const res = await fetch(`https://lrclib.net/api/get?${params}`, {
-      signal: controller.signal,
-    });
-
-    if (res.status === 404) return null;
-    if (!res.ok) return null;
-
-    const data: unknown = await res.json();
-    if (typeof data !== "object" || data === null) return null;
-
-    const body = data as Record<string, unknown>;
-
-    if (typeof body.syncedLyrics === "string" && body.syncedLyrics.length > 0) {
-      lyricsCache.set(cacheKey, body.syncedLyrics);
-      return body.syncedLyrics;
+    const res = await fetchWithTimeout(`https://lrclib.net/api/search?${searchParams}`, 10000);
+    if (!res.ok) {
+      console.warn(`[lyrics] lrclib /search returned ${res.status} for "${track.trackName}"`);
+      return null;
     }
-
-    if (typeof body.plainLyrics === "string" && body.plainLyrics.length > 0) {
-      console.warn(
-        `No synced lyrics for "${track.trackName}" by ${track.artist}, falling back to plain lyrics`
-      );
-      lyricsCache.set(cacheKey, body.plainLyrics);
-      return body.plainLyrics;
+    const results = (await res.json()) as Array<Record<string, unknown>>;
+    for (const body of results) {
+      const lyrics = extractLyrics(body, track);
+      if (lyrics) {
+        lyricsCache.set(cacheKey, lyrics);
+        return lyrics;
+      }
     }
-
     return null;
-  } catch {
+  } catch (err) {
+    console.warn(`[lyrics] lrclib /search failed for "${track.trackName}":`, err);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
 export async function fetchLyrics(
   trackName: string,
   artist: string,
-  accessToken: string
+  accessToken: string,
+  durationMs = 0
 ): Promise<LyricResult> {
   const track: TrackInfo = {
     trackName,
     artist,
     trackId: "",
-    durationMs: 0,
+    durationMs,
     albumArtUrl: null,
     isPlaying: false,
     progressMs: 0,

@@ -2,17 +2,22 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { exchangeCode } from "@/lib/spotify";
-import { verifySession, createSession, COOKIE_NAME, MAX_AGE } from "@/lib/session";
+import { verifySession, createSession, setSessionCookie } from "@/lib/session";
 import { upsertUser } from "@/lib/db";
 
-function makeRedirect(url: string) {
-  return NextResponse.redirect(new URL(url, "http://127.0.0.1:8888").toString());
-}
-
 export async function GET(request: Request) {
-  console.log("[CALLBACK] HIT", request.url);
+  console.log("[CALLBACK] HIT", request.url, "host header:", request.headers.get("host"));
 
   const { searchParams } = new URL(request.url);
+  // request.url's host is unreliable in dev (Next may rewrite it to localhost);
+  // the browser is always on the SPOTIFY_REDIRECT_URI origin, since Spotify
+  // only redirects to the registered URI. Cookies must be set on that origin.
+  const origin = new URL(process.env.SPOTIFY_REDIRECT_URI!).origin;
+
+  function makeRedirect(url: string) {
+    return NextResponse.redirect(new URL(url, origin).toString());
+  }
+
   const code = searchParams.get("code");
   const rawState = searchParams.get("state") ?? "";
   const error = searchParams.get("error");
@@ -112,13 +117,7 @@ export async function GET(request: Request) {
 
   console.log("[CALLBACK] Redirecting to / with session cookie set");
 
-  const response = NextResponse.redirect(new URL("/", "http://127.0.0.1:8888"));
-  response.cookies.set(COOKIE_NAME, sessionToken, {
-    httpOnly: true,
-    secure: false,
-    sameSite: "lax",
-    maxAge: MAX_AGE,
-    path: "/",
-  });
+  const response = NextResponse.redirect(new URL("/", origin));
+  setSessionCookie(response, sessionToken);
   return response;
 }
