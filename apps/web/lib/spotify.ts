@@ -6,6 +6,7 @@ const SCOPES = [
   "user-read-currently-playing",
   "user-read-playback-state",
   "user-modify-playback-state",
+  "user-read-private",
 ];
 
 function getClientCredentials(): {
@@ -175,6 +176,29 @@ export const player = {
       `/volume?volume_percent=${Math.min(100, Math.max(0, Math.round(percent)))}`
     ),
 };
+
+export async function getUserProfile(accessToken: string): Promise<{
+  displayName: string | null;
+  // Requires the user-read-private scope; null for sessions that predate it.
+  product: "premium" | "free" | null;
+}> {
+  const res = await fetch(`${SPOTIFY_API_BASE}/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Spotify API error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const product =
+    data.product === "premium" ? "premium" : data.product ? "free" : null;
+  return {
+    displayName: data.display_name ?? null,
+    product,
+  };
+}
 
 export async function getCurrentPlayback(accessToken: string): Promise<{
   trackName: string;
