@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Shuffle, SkipBack, SkipForward, Play, Pause, Repeat, Repeat1 } from "lucide-react";
 import type { TrackInfo, LyricLine, LyricResult } from "@/lib/types";
 import { findActiveLine } from "@/lib/lyrics-sync";
+import SoundWaveCanvas from "@/components/SoundWaveCanvas";
 
 const POLL_INTERVAL = 2000;
 const RENDER_INTERVAL = 250;
@@ -169,8 +170,13 @@ export default function DashboardPage() {
   }, [track, sendPlayerAction]);
 
   return (
-    <main style={containerStyle}>
-      <TopBar />
+    <>
+      <div style={backgroundStyle} aria-hidden="true" />
+      <SoundWaveCanvas side="left" isPlaying={Boolean(track?.isPlaying)} />
+      <SoundWaveCanvas side="right" isPlaying={Boolean(track?.isPlaying)} />
+
+      <main style={containerStyle}>
+        <TopBar />
 
       {notice && <div style={noticeStyle}>{notice}</div>}
 
@@ -239,7 +245,8 @@ export default function DashboardPage() {
           </section>
         </>
       )}
-    </main>
+      </main>
+    </>
   );
 }
 
@@ -456,6 +463,20 @@ const containerStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "1.25rem",
+  position: "relative",
+  zIndex: 2,
+};
+
+const backgroundStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  backgroundImage:
+    "linear-gradient(rgba(10,10,10,0.45), rgba(10,10,10,0.45)), url('/speakers-bg.png')",
+  backgroundSize: "cover",
+  backgroundPosition: "center",
+  backgroundRepeat: "no-repeat",
+  zIndex: 0,
+  pointerEvents: "none",
 };
 
 const topBarStyle: React.CSSProperties = {
