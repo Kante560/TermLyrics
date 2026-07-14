@@ -115,9 +115,9 @@ export async function GET(request: Request) {
     return makeRedirect("/login?error=exchange_failed");
   }
 
-  console.log("[CALLBACK] Redirecting to / with session cookie set");
+  console.log("[CALLBACK] Redirecting to /player with session cookie set");
 
-  const response = NextResponse.redirect(new URL("/", origin));
+  const response = NextResponse.redirect(new URL("/player", origin));
   setSessionCookie(response, sessionToken);
   return response;
 }
