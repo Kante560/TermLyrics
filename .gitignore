@@ -16,3 +16,7 @@ __pycache__/
 .env*
 
 .turbo/
+
+# Agent tooling - never commit
+.agents/
+.claude/
