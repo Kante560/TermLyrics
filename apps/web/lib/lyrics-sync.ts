@@ -95,64 +95,122 @@ function extractLyrics(body: Record<string, unknown>, track: TrackInfo): string 
   return null;
 }
 
+/**
+ * Spotify reports every credited artist ("taves, BNXN") and keeps feature
+ * tags in the title ("CWT (feat. BNXN)"). lrclib indexes tracks
+ * inconsistently: some under the joined artists, some under the primary
+ * only; some with the feature tag in the title, some without. No single
+ * spelling matches everything, so try the plausible ones.
+ */
+function artistCandidates(artist: string): string[] {
+  const primary = artist.split(",")[0].trim();
+  return primary && primary !== artist ? [artist, primary] : [artist];
+}
+
+function titleCandidates(trackName: string): string[] {
+  const stripped = trackName
+    .replace(/\s*[([](?:feat|ft|with)\.?\s[^)\]]*[)\]]/gi, "")
+    .replace(/\s+-\s+(?:remaster(?:ed)?|radio edit|single version|live).*$/i, "")
+    .trim();
+  return stripped && stripped !== trackName ? [trackName, stripped] : [trackName];
+}
+
+async function lrclibGet(
+  artist: string,
+  title: string,
+  track: TrackInfo,
+  withDuration: boolean
+): Promise<string | null> {
+  const params = new URLSearchParams({ artist_name: artist, track_name: title });
+  // lrclib rejects duration=0 with a 400, and matches it strictly when sent,
+  // so it is worth one attempt with and one without.
+  if (withDuration && track.durationMs > 0) {
+    params.set("duration", String(Math.round(track.durationMs / 1000)));
+  } else if (withDuration) {
+    return null;
+  }
+
+  try {
+    const res = await fetchWithTimeout(`https://lrclib.net/api/get?${params}`, 8000);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      console.warn(`[lyrics] lrclib /get returned ${res.status} for "${title}" by ${artist}`);
+      return null;
+    }
+    return extractLyrics((await res.json()) as Record<string, unknown>, track);
+  } catch (err) {
+    console.warn(`[lyrics] lrclib /get failed for "${title}" by ${artist}:`, err);
+    return null;
+  }
+}
+
+async function lrclibSearch(
+  artist: string,
+  title: string,
+  track: TrackInfo
+): Promise<string | null> {
+  const params = new URLSearchParams({ artist_name: artist, track_name: title });
+  try {
+    const res = await fetchWithTimeout(`https://lrclib.net/api/search?${params}`, 8000);
+    if (!res.ok) {
+      console.warn(`[lyrics] lrclib /search returned ${res.status} for "${title}" by ${artist}`);
+      return null;
+    }
+    const results = (await res.json()) as Array<Record<string, unknown>>;
+    // Prefer any result that carries synced lyrics over the first plain one.
+    for (const body of results) {
+      if (typeof body.syncedLyrics === "string" && body.syncedLyrics.length > 0) {
+        return body.syncedLyrics;
+      }
+    }
+    for (const body of results) {
+      const lyrics = extractLyrics(body, track);
+      if (lyrics) return lyrics;
+    }
+    return null;
+  } catch (err) {
+    console.warn(`[lyrics] lrclib /search failed for "${title}" by ${artist}:`, err);
+    return null;
+  }
+}
+
 async function tryLrclib(track: TrackInfo): Promise<string | null> {
   const cacheKey = `${track.artist}-${track.trackName}`;
   const cached = lyricsCache.get(cacheKey);
   if (cached) return cached;
 
-  const getParams = new URLSearchParams({
-    artist_name: track.artist,
-    track_name: track.trackName,
-  });
-  // lrclib rejects duration=0 with a 400; only send it when we know it
-  if (track.durationMs > 0) {
-    getParams.set("duration", String(Math.round(track.durationMs / 1000)));
-  }
+  const artists = artistCandidates(track.artist);
+  const titles = titleCandidates(track.trackName);
 
-  // Two attempts against /api/get (network here can be slow/flaky), then /api/search.
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const res = await fetchWithTimeout(`https://lrclib.net/api/get?${getParams}`, 10000);
-      if (res.status === 404) break; // definitive miss; go to search
-      if (!res.ok) {
-        console.warn(`[lyrics] lrclib /get returned ${res.status} for "${track.trackName}"`);
-        continue;
+  // /get is an exact match and returns the best-quality result, so exhaust
+  // every spelling there before falling back to the fuzzier /search.
+  for (const withDuration of [true, false]) {
+    for (const artist of artists) {
+      for (const title of titles) {
+        const lyrics = await lrclibGet(artist, title, track, withDuration);
+        if (lyrics) {
+          lyricsCache.set(cacheKey, lyrics);
+          return lyrics;
+        }
       }
-      const body = (await res.json()) as Record<string, unknown>;
-      const lyrics = extractLyrics(body, track);
-      if (lyrics) {
-        lyricsCache.set(cacheKey, lyrics);
-        return lyrics;
-      }
-      break;
-    } catch (err) {
-      console.warn(`[lyrics] lrclib /get attempt ${attempt} failed for "${track.trackName}":`, err);
     }
   }
 
-  try {
-    const searchParams = new URLSearchParams({
-      artist_name: track.artist,
-      track_name: track.trackName,
-    });
-    const res = await fetchWithTimeout(`https://lrclib.net/api/search?${searchParams}`, 10000);
-    if (!res.ok) {
-      console.warn(`[lyrics] lrclib /search returned ${res.status} for "${track.trackName}"`);
-      return null;
-    }
-    const results = (await res.json()) as Array<Record<string, unknown>>;
-    for (const body of results) {
-      const lyrics = extractLyrics(body, track);
+  for (const artist of artists) {
+    for (const title of titles) {
+      const lyrics = await lrclibSearch(artist, title, track);
       if (lyrics) {
         lyricsCache.set(cacheKey, lyrics);
         return lyrics;
       }
     }
-    return null;
-  } catch (err) {
-    console.warn(`[lyrics] lrclib /search failed for "${track.trackName}":`, err);
-    return null;
   }
+
+  console.warn(
+    `[lyrics] no lrclib match for "${track.trackName}" by ${track.artist} ` +
+      `(tried artists=${JSON.stringify(artists)} titles=${JSON.stringify(titles)})`
+  );
+  return null;
 }
 
 export async function fetchLyrics(
