@@ -103,7 +103,7 @@ export async function GET(request: Request) {
     console.log("[CALLBACK] DB upsert succeeded");
   } catch (err) {
     console.log("[CALLBACK] DB upsert failed:", err);
-    return makeRedirect("/login?error=exchange_failed");
+    return makeRedirect("/login?error=db_failed");
   }
 
   console.log("[CALLBACK] Creating session JWT");

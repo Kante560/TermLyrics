@@ -19,6 +19,7 @@ export default function LoginPage({
     state_mismatch: "Security check failed. Please try again.",
     exchange_failed: "Could not complete authentication with Spotify.",
     userinfo_failed: "Could not retrieve your Spotify profile.",
+    db_failed: "Signed in, but we could not save your session. Please try again shortly.",
   };
 
   const error = searchParams.error

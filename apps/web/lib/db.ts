@@ -1,6 +1,8 @@
 import postgres from "postgres";
 
-const sql = postgres(process.env.DATABASE_URL!);
+// Supavisor transaction mode (port 6543) does not support prepared
+// statements, which postgres.js uses by default.
+const sql = postgres(process.env.DATABASE_URL!, { prepare: false });
 
 export interface UserRow {
   spotify_id: string;
